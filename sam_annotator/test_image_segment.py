@@ -34,7 +34,13 @@ def create_image_masked(mask,  img, random_color=False):
     new_image=cv2.addWeighted(src1=img,alpha=1,src2=new_mask_image,beta=0.8,gamma=0)
     return new_image, new_mask_image
 
-def predict_mask(ort_inputs):
+def predict_mask(input_points,input_labels):
+    masks, scores, logits = predictor.predict(point_coords=np.array(input_points),point_labels=np.array(input_labels),multimask_output=False)
+    mask_input = logits[np.argmax(scores), :, :]
+    masks, _, _ = predictor.predict(point_coords=np.array(input_points),point_labels=np.array(input_labels),mask_input=mask_input[None, :, :],multimask_output=False,)
+    return masks
+
+def predict_mask_onnx(ort_inputs):
     masks, _, low_res_logits = ort_session.run(None, ort_inputs)
     masks = masks > predictor.model.mask_threshold
     return masks
@@ -44,36 +50,45 @@ def mouse_callback(event, x, y, flags, param):
     global img_masked
     global input_points
     global input_labels
-    global onnx_mask_input
-    global onnx_has_mask_input
     global img
+    if onnx:
+        global onnx_mask_input
+        global onnx_has_mask_input
     if event == cv2.EVENT_LBUTTONDOWN:
         input_points.append([x, y])
-        onnx_points_input = np.concatenate([np.array(input_points), np.array([[0.0, 0.0]])], axis=0)[None, :, :]
-        onnx_points_input = predictor.transform.apply_coords(onnx_points_input, img.shape[:2]).astype(np.float32)
+        if onnx:
+            onnx_points_input = np.concatenate([np.array(input_points), np.array([[0.0, 0.0]])], axis=0)[None, :, :]
+            onnx_points_input = predictor.transform.apply_coords(onnx_points_input, img.shape[:2]).astype(np.float32)
         #print("Coords:", x, y)
         if flags == cv2.EVENT_FLAG_LBUTTON:
             input_labels.append(1)
         else:
             input_labels.append(0)
-        onnx_labels_input = np.concatenate([np.array(input_labels), np.array([-1])], axis=0)[None, :].astype(np.float32)
-        ort_inputs = {"image_embeddings": image_embedding,"point_coords": onnx_points_input,"point_labels": onnx_labels_input,"mask_input": onnx_mask_input,"has_mask_input": onnx_has_mask_input,"orig_im_size": np.array(img.shape[:2], dtype=np.float32)}
-        masks = predict_mask(ort_inputs)
+        if onnx:
+            onnx_labels_input = np.concatenate([np.array(input_labels), np.array([-1])], axis=0)[None, :].astype(np.float32)
+            ort_inputs = {"image_embeddings": image_embedding,"point_coords": onnx_points_input,"point_labels": onnx_labels_input,"mask_input": onnx_mask_input,"has_mask_input": onnx_has_mask_input,"orig_im_size": np.array(img.shape[:2], dtype=np.float32)}
+            masks = predict_mask_onnx(ort_inputs)
+        else:
+            masks = predict_mask(input_points,input_labels)
         img_masked, mask_image = create_image_masked(masks, img)
         draw_points(input_points,input_labels,img_masked,img)
     elif event == cv2.EVENT_MOUSEMOVE:
         new_input_points = input_points.copy()
         new_input_labels = input_labels.copy()
         new_input_points.append([x,y])
-        onnx_points_input = np.concatenate([np.array(new_input_points), np.array([[0.0, 0.0]])], axis=0)[None, :, :]
-        onnx_points_input = predictor.transform.apply_coords(onnx_points_input, img.shape[:2]).astype(np.float32)
+        if onnx:
+            onnx_points_input = np.concatenate([np.array(new_input_points), np.array([[0.0, 0.0]])], axis=0)[None, :, :]
+            onnx_points_input = predictor.transform.apply_coords(onnx_points_input, img.shape[:2]).astype(np.float32)
         if flags == (cv2.EVENT_MOUSEMOVE + cv2.EVENT_FLAG_CTRLKEY):
             new_input_labels.append(0)
         else:
             new_input_labels.append(1)
-        onnx_labels_input = np.concatenate([np.array(new_input_labels), np.array([-1])], axis=0)[None, :].astype(np.float32)
-        ort_inputs = {"image_embeddings": image_embedding,"point_coords": onnx_points_input,"point_labels": onnx_labels_input,"mask_input": onnx_mask_input,"has_mask_input": onnx_has_mask_input,"orig_im_size": np.array(img.shape[:2], dtype=np.float32)}
-        masks = predict_mask(ort_inputs)
+        if onnx:
+            onnx_labels_input = np.concatenate([np.array(new_input_labels), np.array([-1])], axis=0)[None, :].astype(np.float32)
+            ort_inputs = {"image_embeddings": image_embedding,"point_coords": onnx_points_input,"point_labels": onnx_labels_input,"mask_input": onnx_mask_input,"has_mask_input": onnx_has_mask_input,"orig_im_size": np.array(img.shape[:2], dtype=np.float32)}
+            masks = predict_mask_onnx(ort_inputs)
+        else:
+            masks = predict_mask(new_input_points,new_input_labels)
         img_masked_prev, mask_image_prev = create_image_masked(masks, img)
         draw_points(new_input_points,new_input_labels,img_masked_prev,img)
 
@@ -85,7 +100,7 @@ def combine_mask(complete_class_mask, mask_image):
     combine_mask[x2,y2] = [155, 44, 3]
     return combine_mask
 
-def onnx_image_segment_test(image, output, model_type = "vit_h", pth_file = "sam_vit_h_4b8939.pth", onnx_file = "sam_onnx_example.onnx", device = "cuda", export_binary_mask = False):
+def image_segment_test(image, output, model_type = "vit_h", pth_file = "sam_vit_h_4b8939.pth", onnx_file = None, device = "cuda", scale_percent = None, export_binary_mask = False):
     """
     Function to test the segmentation of the sam vit_h onnx model on an image
     Parameters:
@@ -95,6 +110,7 @@ def onnx_image_segment_test(image, output, model_type = "vit_h", pth_file = "sam
         pth_file (str): Path of the .pth file corresponding to the type of model chosen
         onnx_file (str): Path of the .onnx file corresponding to the type of model chosen
         device (str): Device to run the model ('cpu' or 'cuda')
+        scale_percent (int): Image downscaling percentage
         export_binary_mask (bool): Flag if you want to export the generated mask as binary
     """
     #Global variables
@@ -104,33 +120,42 @@ def onnx_image_segment_test(image, output, model_type = "vit_h", pth_file = "sam
     global img_masked
     global input_points
     global input_labels
-    global ort_session
     global predictor
-    global onnx_mask_input
-    global onnx_has_mask_input
+    if onnx_file is not None:
+        global onnx
+        onnx = True 
+    else:
+        onnx = False
+    if onnx:
+        global onnx_mask_input
+        global onnx_has_mask_input
+        global ort_session
    
     #SAM configuration
     sam_checkpoint = pth_file
     model_type = model_type
     torch.device(device)
     sam = sam_model_registry[model_type](checkpoint=sam_checkpoint)
-    onnx_model_path = onnx_file 
-    ort_session = onnxruntime.InferenceSession(onnx_model_path)
+    if onnx:
+        onnx_model_path = onnx_file 
+        ort_session = onnxruntime.InferenceSession(onnx_model_path)
     sam.to(device=device)
     
     predictor = SamPredictor(sam)
     
-    onnx_mask_input = np.zeros((1, 1, 256, 256), dtype=np.float32)
-    onnx_has_mask_input = np.zeros(1, dtype=np.float32)
+    if onnx:
+        onnx_mask_input = np.zeros((1, 1, 256, 256), dtype=np.float32)
+        onnx_has_mask_input = np.zeros(1, dtype=np.float32)
 
     # Read image and create window
     img = cv2.imread(image)
-    height, width, _ = img.shape
-    scale_percent = 95 # Porcentaje de reducción
-    new_width = int(width * scale_percent / 100)
-    new_height = int(height * scale_percent / 100)
-    dim = (new_width, new_height)
-    img = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
+    if scale_percent is not None:
+        height, width, _ = img.shape
+        scale_percent = 95 # Porcentaje de reducción
+        new_width = int(width * scale_percent / 100)
+        new_height = int(height * scale_percent / 100)
+        dim = (new_width, new_height)
+        img = cv2.resize(img, dim, interpolation = cv2.INTER_AREA)
     cv2.namedWindow('Image')
     cv2.imshow('Image', img)
     mask_image = None
@@ -145,9 +170,10 @@ def onnx_image_segment_test(image, output, model_type = "vit_h", pth_file = "sam
     # Assign the function to the window mouse event
     cv2.setMouseCallback('Image', mouse_callback)
     predictor.set_image(img)
-    global image_embedding
-    image_embedding = predictor.get_image_embedding().cpu().numpy()
-    print(type(image_embedding))
+    if onnx:
+        global image_embedding
+        image_embedding = predictor.get_image_embedding().cpu().numpy()
+        # print(type(image_embedding))
     # Wait for the window to close
     while True:
         # Wait for a key press for 1 millisecond
@@ -194,11 +220,14 @@ def onnx_image_segment_test(image, output, model_type = "vit_h", pth_file = "sam
             if len(input_labels) == 0 and len(input_points) == 0:
                 cv2.imshow('Image', img)
             else:
-                onnx_points_input = np.concatenate([np.array(input_points), np.array([[0.0, 0.0]])], axis=0)[None, :, :]
-                onnx_points_input = predictor.transform.apply_coords(onnx_points_input, img.shape[:2]).astype(np.float32)
-                onnx_labels_input = np.concatenate([np.array(input_labels), np.array([-1])], axis=0)[None, :].astype(np.float32)
-                ort_inputs = {"image_embeddings": image_embedding,"point_coords": onnx_points_input,"point_labels": onnx_labels_input,"mask_input": onnx_mask_input,"has_mask_input": onnx_has_mask_input,"orig_im_size": np.array(img.shape[:2], dtype=np.float32)}
-                masks = predict_mask(ort_inputs)
+                if onnx:
+                    onnx_points_input = np.concatenate([np.array(input_points), np.array([[0.0, 0.0]])], axis=0)[None, :, :]
+                    onnx_points_input = predictor.transform.apply_coords(onnx_points_input, img.shape[:2]).astype(np.float32)
+                    onnx_labels_input = np.concatenate([np.array(input_labels), np.array([-1])], axis=0)[None, :].astype(np.float32)
+                    ort_inputs = {"image_embeddings": image_embedding,"point_coords": onnx_points_input,"point_labels": onnx_labels_input,"mask_input": onnx_mask_input,"has_mask_input": onnx_has_mask_input,"orig_im_size": np.array(img.shape[:2], dtype=np.float32)}
+                    masks = predict_mask_onnx(ort_inputs)
+                else:
+                    masks = predict_mask(input_points,input_labels)
                 img_masked, mask_image = create_image_masked(masks, img)
                 draw_points(input_points,input_labels,img_masked,img)
                 
