@@ -63,13 +63,13 @@ def create_image_masked(mask,  img, random_color=False):
     new_image=cv2.addWeighted(src1=img,alpha=1,src2=new_mask_image,beta=0.8,gamma=0)
     return new_image, new_mask_image
 
-def predict_mask(input_points,input_labels):
+def predict_mask(input_points,input_labels): #############
     masks, scores, logits = predictor.predict(point_coords=np.array(input_points),point_labels=np.array(input_labels),multimask_output=False)
     mask_input = logits[np.argmax(scores), :, :]
     masks, _, _ = predictor.predict(point_coords=np.array(input_points),point_labels=np.array(input_labels),mask_input=mask_input[None, :, :],multimask_output=False,)
     return masks
 
-def mouse_callback(event, x, y, flags, param):
+def mouse_callback(event, x, y, flags, param): ##########
     global mask_image
     global img_masked
     global input_points
@@ -96,7 +96,7 @@ def mouse_callback(event, x, y, flags, param):
         img_masked_prev, mask_image_prev = create_image_masked(masks, img)
         draw_points(new_input_points,new_input_labels,img_masked_prev,img)
 
-def combine_mask(complete_class_mask, mask_image):
+def combine_mask(complete_class_mask, mask_image): ##########
     x1,y1 = np.where(np.all(complete_class_mask == [155, 44, 3], axis=-1))
     x2,y2 = np.where(np.all(mask_image == [155, 44, 3], axis=-1))
     combine_mask = np.zeros_like(mask_image)
