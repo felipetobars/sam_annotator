@@ -14,6 +14,8 @@ if __name__ == "__main__":
     image_segment_test.add_argument("-device", dest = "device", help = "Device to run the model ('cpu' or 'cuda')", type = str, required = False, default = "cuda")
     image_segment_test.add_argument("-scale_percent", dest = "scale_percent",  help = "Image downscaling percentage", type = int, required = False, default = None)
     image_segment_test.add_argument("--export_binary_mask",  dest = "export_binary_mask", help = "Flag if you want to export the generated mask as binary", action = "store_true")
+    image_segment_test.add_argument("-save_embedding_path",  dest = "save_embedding_path", help = "Path to save the embedding", type = str, required = False, default = None)
+    image_segment_test.add_argument("-input_embedding_path", dest = "input_embedding_path",  help = "File path with embedding", type = str, required = False, default = None)
 
     args = parser.parse_args()
     option = str(args.option)

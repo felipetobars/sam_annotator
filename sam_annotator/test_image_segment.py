@@ -100,7 +100,7 @@ def combine_mask(complete_class_mask, mask_image):
     combine_mask[x2,y2] = [155, 44, 3]
     return combine_mask
 
-def image_segment_test(image, output, model_type = "vit_h", pth_file = "sam_vit_h_4b8939.pth", onnx_file = None, device = "cuda", scale_percent = None, export_binary_mask = False):
+def image_segment_test(image, output, model_type = "vit_h", pth_file = "sam_vit_h_4b8939.pth", onnx_file = None, device = "cuda", scale_percent = None, export_binary_mask = False, save_embedding_path = None, input_embedding_path = None):
     """
     Function to test the segmentation of the sam vit_h onnx model on an image
     Parameters:
@@ -112,6 +112,8 @@ def image_segment_test(image, output, model_type = "vit_h", pth_file = "sam_vit_
         device (str): Device to run the model ('cpu' or 'cuda')
         scale_percent (int): Image downscaling percentage
         export_binary_mask (bool): Flag if you want to export the generated mask as binary
+        save_embedding_path (str): Path to save the embedding
+        input_embedding_path (str): File path with embedding
     """
     #Global variables
     global img
@@ -169,7 +171,12 @@ def image_segment_test(image, output, model_type = "vit_h", pth_file = "sam_vit_
       
     # Assign the function to the window mouse event
     cv2.setMouseCallback('Image', mouse_callback)
-    predictor.set_image(img)
+    if input_embedding_path is not None:
+        predictor.load_image_embedding(input_embedding_path)
+    else:
+        predictor.set_image(img)
+        if save_embedding_path is not None:
+            predictor.save_image_embedding(save_embedding_path)
     if onnx:
         global image_embedding
         image_embedding = predictor.get_image_embedding().cpu().numpy()
