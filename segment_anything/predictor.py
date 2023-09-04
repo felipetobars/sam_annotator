@@ -254,6 +254,22 @@ class SamPredictor:
             )
         assert self.features is not None, "Features must exist if an image has been set."
         return self.features
+    
+    def save_image_embedding(self, path):
+        if not self.is_image_set:
+            raise RuntimeError("An image must be set with .set_image(...) before embedding saving.")
+        res = {
+            'original_size': self.original_size,
+            'input_size': self.input_size,
+            'features': self.features,
+            'is_image_set': True,
+        }
+        torch.save(res, path)
+
+    def load_image_embedding(self, path):
+        res = torch.load(path, self.device)
+        for k, v in res.items():
+            setattr(self, k, v)
 
     @property
     def device(self) -> torch.device:
